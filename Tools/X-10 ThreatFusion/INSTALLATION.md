@@ -38,7 +38,11 @@ URLSCAN_API_KEY=your_urlscan_key_here
 GETIPINTEL_EMAIL=your_email_here
 IP_DETECTIVE_API_KEY=your_ipdetective_key_here
 URLHAUS_API_KEY=your_urlhaus_key_here
-RANSOMWARE_LIVE_API_KEY=your_ransomwarelive_key_here
+HUNTER_API_KEY=your_hunter_key_here
+MALWARE_BAZAAR_API_KEY=your_malwarebazaar_key_here
+THREATFOX_API_KEY=your_threatfox_key_here
+YARAIFY_API_KEY=your_yaraify_key_here
+
 ```
 
 ### 4. Launch Application
