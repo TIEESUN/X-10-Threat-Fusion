@@ -487,7 +487,7 @@ from apis import (
     URLscanAPI,
     IPDetectiveAPI,
     GetIPIntelAPI,
-    # RansomwareLiveAPI,
+    RansomwareLiveAPI,
     HunterAPI,
     MalwareBazaarAPI,
     ThreatFoxAPI,
@@ -1800,7 +1800,7 @@ def display_source_selection():
     
     with col4:
         getipintel = st.checkbox("GetIPIntel", value=bool(Config.GETIPINTEL_CONTACT), disabled=not Config.GETIPINTEL_CONTACT)
-        ransomware_live = st.checkbox("Ransomware.live", value=bool(Config.RANSOMWARE_LIVE_API_KEY), disabled=not Config.RANSOMWARE_LIVE_API_KEY)
+        ransomware_live = st.checkbox("Ransomware.live", value=True)  # Public API — no key required
         malware_bazaar = st.checkbox("Malware Bazaar", value=bool(Config.MALWARE_BAZAAR_API_KEY), disabled=not Config.MALWARE_BAZAAR_API_KEY)
     
     with col5:
@@ -2013,63 +2013,75 @@ def display_getipintel_results(data: Dict[str, Any]):
 def display_ransomware_live_results(data: Dict[str, Any]):
     """Display Ransomware.live results"""
     st.subheader("🚨 Ransomware.live Results")
-    
+
     if "error" in data:
         st.error(f"Error: {data['error']}")
         return
-    
+
     victims = data.get("victims", [])
-    victims_found = data.get("victims_found", 0)
-    threat_level = data.get("threat_level", "unknown")
+    # v2 API returns "total_victims_found" (not "victims_found")
+    victims_found = data.get("total_victims_found", data.get("victims_found", len(victims)))
+    threat_level = data.get("threat_level", "unknown").lower()
     is_malicious = data.get("is_malicious", False)
-    
+
     # Summary metrics
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
         threat_emoji = {
+            "critical": "🔴",
             "high": "🔴",
             "medium": "🟠",
             "low": "🟡",
-            "unknown": "⚪"
+            "none": "🟢",
+            "unknown": "⚪",
         }.get(threat_level, "⚪")
         st.metric("Threat Level", f"{threat_emoji} {threat_level.upper()}")
-    
+
     with col2:
         status_color = "🔴" if is_malicious else "🟢"
         status_text = "ASSOCIATED" if is_malicious else "NOT FOUND"
         st.metric("Ransomware Status", f"{status_color} {status_text}")
-    
+
     with col3:
         st.metric("Victims Found", victims_found)
-    
+
     # Display victims if found
     if victims_found > 0:
         st.warning(f"⚠️ Found {victims_found} associated ransomware victim(s)")
-        
+
         with st.expander(f"📋 Victim Details ({victims_found} total)", expanded=True):
             for idx, victim in enumerate(victims, 1):
                 col1, col2 = st.columns([2, 1])
-                
+
                 with col1:
-                    st.write(f"**{idx}. {victim.get('name', 'Unknown')}**")
+                    # v2 API: organisation name is "victim", date is "attackdate"
+                    org_name = victim.get("victim", victim.get("name", "Unknown"))
+                    attack_date = victim.get("attackdate", victim.get("discovery_date", "N/A"))
+                    country = victim.get("country", "")
+                    website = victim.get("website", "")
+
+                    st.write(f"**{idx}. {org_name}**")
                     st.write(f"  - **Group:** {victim.get('group', 'Unknown')}")
-                    st.write(f"  - **Date:** {victim.get('discovery_date', 'N/A')}")
-                    st.write(f"  - **Status:** {victim.get('status', 'Unknown')}")
-                
+                    st.write(f"  - **Date:** {attack_date}")
+                    if country:
+                        st.write(f"  - **Country:** {country}")
+                    if website:
+                        st.write(f"  - **Website:** {website}")
+
                 with col2:
                     st.write("")  # Spacing
-                
+
                 if idx < len(victims):
                     st.markdown("---")
     else:
         st.info("✅ No ransomware victim associations found")
-    
-    # Display active groups info
-    groups = data.get("groups", [])
-    if groups:
-        with st.expander(f"👥 Active Ransomware Groups ({len(groups)} shown)", expanded=False):
-            for group in groups[:5]:
+
+    # Display associated groups if identified via bidirectional correlation
+    associated_groups = data.get("associated_groups", [])
+    if associated_groups:
+        with st.expander(f"👥 Associated Ransomware Groups ({len(associated_groups)} found)", expanded=False):
+            for group in associated_groups[:10]:
                 if isinstance(group, dict):
                     group_name = group.get("name", group.get("groupname", "Unknown"))
                     st.write(f"• **{group_name}**")
@@ -3342,13 +3354,20 @@ def display_results(results: Dict[str, Any], observable: str):
         ("Feodo Tracker", results.get("Feodo Tracker"), display_feodo_results),
     ]
     
-    # FIXED FILTERING - Include ThreatFox even if it has different structure
+    # FIXED FILTERING - Include any source that returned a non-error response
     valid_sources = []
     for name, data, func in sources_with_data:
         if data is not None and isinstance(data, dict):
-            # Include if: no error, or has IOCs, or is skipped, or has valid data
-            # Also include YARAify errors (hash not found or wrong type) for user feedback
-            if ("error" not in data and len(data) > 1) or data.get("ioc_count", 0) > 0 or data.get("query_status") == "skipped" or data.get("query_status") == "ok" or (name == "YARAify" and "error" in data):
+            has_error = "error" in data
+            is_skipped = data.get("query_status") == "skipped"
+            is_ok = data.get("query_status") == "ok"
+            has_real_data = not has_error and len(data) > 1
+            has_iocs = data.get("ioc_count", 0) > 0
+            yaraify_feedback = name == "YARAify" and has_error
+            # Ransomware.live: always show if no error (even with 0 victims found)
+            ransomware_no_error = name == "Ransomware.live" and not has_error
+
+            if has_real_data or has_iocs or is_skipped or is_ok or yaraify_feedback or ransomware_no_error:
                 valid_sources.append((name, data, func))
     
     if valid_sources:
@@ -3804,13 +3823,12 @@ def get_api_clients() -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"❌ Failed to initialize GetIPIntel: {e}")
     
-    # Ransomware.live - Ransomware intelligence
-    if Config.RANSOMWARE_LIVE_API_KEY:
-        try:
-            clients["Ransomware.live"] = RansomwareLiveAPI(Config.RANSOMWARE_LIVE_API_KEY)
-            logger.info("✅ Ransomware.live initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Ransomware.live: {e}")
+    # Ransomware.live - Public API, no key required
+    try:
+        clients["Ransomware.live"] = RansomwareLiveAPI()
+        logger.info("✅ Ransomware.live initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize Ransomware.live: {e}")
     # Hunter.io - Email and domain intelligence
     if Config.HUNTER_API_KEY:
         try:
