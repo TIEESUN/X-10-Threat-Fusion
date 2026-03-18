@@ -11,7 +11,7 @@ from .urlhaus import URLHausAPI
 from .urlscan import URLscanAPI
 from .ipdetective import IPDetectiveAPI
 from .getipintel import GetIPIntelAPI
-# from .ransomware_live import RansomwareLiveAPI
+from .ransomware_live import RansomwareLiveAPI
 from .hunter import HunterAPI
 from .malware_bazaar import MalwareBazaarAPI
 from .threatfox import ThreatFoxAPI
